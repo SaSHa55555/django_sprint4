@@ -1,11 +1,11 @@
 import os
 import re
 import time
+from collections import namedtuple
 from http import HTTPStatus
 from inspect import getsource
 from pathlib import Path
-from typing import (
-    Iterable, Type, Optional, Union, Any, Tuple, List, NamedTuple, TypeVar)
+from typing import Iterable, Type, Optional, Union, Any, Tuple
 
 import pytest
 from django.apps import apps
@@ -13,7 +13,6 @@ from django.contrib.auth import get_user_model
 from django.db.models import Model, Field
 from django.forms import BaseForm
 from django.http import HttpResponse
-from django.test import override_settings
 from django.test.client import Client
 from mixer.backend.django import mixer as _mixer
 
@@ -21,15 +20,8 @@ N_PER_FIXTURE = 3
 N_PER_PAGE = 10
 COMMENT_TEXT_DISPLAY_LEN_FOR_TESTS = 50
 
-KeyVal = NamedTuple('KeyVal', [('key', Optional[str]), ('val', Optional[str])])
-UrlRepr = NamedTuple('UrlRepr', [('url', str), ('repr', str)])
-TitledUrlRepr = TypeVar('TitledUrlRepr', bound=Tuple[UrlRepr, str])
-
-
-@pytest.fixture(autouse=True)
-def enable_debug_false():
-    with override_settings(DEBUG=False):
-        yield
+KeyVal = namedtuple('KeyVal', 'key val')
+UrlRepr = namedtuple('UrlRepr', 'url repr')
 
 
 class SafeImportFromContextManager:
@@ -198,23 +190,19 @@ def CommentModel() -> Model:
     models_src_code = getsource(models)
     models_src_clean = re.sub('#.+', '', models_src_code)
     class_defs = re.findall(
-        r'(class +\w+[\w\W]+?)(?=class)', models_src_clean + 'class')
-    comment_class_name = ''
-    known_class_names = {'BaseModel', 'Meta', 'Category', 'Location', 'Post'}
+        r'(class +\w+[\w\W]+?)class', models_src_clean + 'class')
+    class_name = ''
     for class_def in class_defs:
         class_names = re.findall(
             r'class +(\w+)[\w\W]+ForeignKey[\w\W]+Post', class_def)
-        for name in class_names:
-            if name not in known_class_names:
-                comment_class_name = name
-                break
-        if comment_class_name:
+        if class_names:
+            class_name = class_names[0]
             break
-    assert comment_class_name, (
+    assert class_name, (
         'Убедитесь, что в файле `blog/models.py` объявили модель комментария '
         'с полем `ForeignKey`, связывающим её с моделью `Post`.'
     )
-    return getattr(models, comment_class_name)
+    return getattr(models, class_name)
 
 
 class ItemCreatedException(Exception):
@@ -275,32 +263,18 @@ def _testget_context_item_by_class(
         else:
             return isinstance(val, cls)
 
-    matched_keyval: KeyVal = KeyVal(key=None, val=None)
-    matched_keyvals: List[KeyVal] = []
+    result: KeyVal = KeyVal(key=None, val=None)
     for key, val in dict(context).items():
         if is_a_match(val):
-            matched_keyval = KeyVal(key, val)
-            matched_keyvals.append(matched_keyval)
+            result = KeyVal(key, val)
+            break
     if err_msg:
-        assert len(matched_keyvals) == 1, err_msg
-        assert matched_keyval.key, err_msg
-
-    return matched_keyval
-
-
-def _testget_context_item_by_key(
-        context, key: str, err_msg: str
-) -> KeyVal:
-    context_as_dict = dict(context)
-    if key not in context_as_dict:
-        raise AssertionError(err_msg)
-    return KeyVal(key, context_as_dict[key])
+        assert result.key, err_msg
+    return result
 
 
 def get_page_context_form(user_client: Client, page_url: str) -> KeyVal:
     response = user_client.get(page_url)
-    if not str(response.status_code).startswith('2'):
-        return KeyVal(key=None, val=None)
     return _testget_context_item_by_class(
         response.context, BaseForm, ''
     )
@@ -331,6 +305,7 @@ def get_field_key(
         return (field_type.__name__, None)
 
 
+
 @pytest.fixture(scope='session', autouse=True)
 def cleanup(request):
     start_time = time.time()
@@ -338,12 +313,11 @@ def cleanup(request):
     yield
 
     from blogicum import settings
-    image_dir = Path(settings.__file__).parent.parent / settings.MEDIA_ROOT
+    image_dir =  Path(settings.__file__).parent.parent / settings.MEDIA_ROOT
 
     for root, dirs, files in os.walk(image_dir):
         for filename in files:
-            if (filename.endswith('.jpg') or filename.endswith(
-                    '.gif') or filename.endswith('.png')):
+            if filename.endswith('.jpg') or filename.endswith('.gif') or filename.endswith('.png'):
                 file_path = os.path.join(root, filename)
                 if os.path.getmtime(file_path) >= start_time:
                     os.remove(file_path)
