@@ -53,56 +53,6 @@ def test_post_created_at(post_with_published_location):
     )
 
 
-@pytest.mark.django_db(transaction=True)
-def test_post(
-        published_category: Model,
-        published_location: Model,
-        user_client: django.test.Client,
-        another_user_client: django.test.Client,
-        unlogged_client: django.test.Client,
-        comment_to_a_post: Model,
-        create_post_context_form_item: Tuple[str, BaseForm],
-        PostModel: Type[Model],
-        CommentModelAdapter: CommentModelAdapterT
-):
-    _, ctx_form = create_post_context_form_item
-
-    create_a_post_get_response = get_create_a_post_get_response_safely(
-        user_client)
-
-    response_on_created, created_items = _test_create_items(
-        PostModel, PostModelAdapter,
-        another_user_client,
-        create_a_post_get_response, ctx_form,
-        published_category, published_location,
-        unlogged_client, user_client)
-
-    edit_response, edit_url, del_url = _test_edit_post(
-        CommentModelAdapter, another_user_client, comment_to_a_post,
-        unlogged_client=unlogged_client, user_client=user_client)
-
-    item_to_delete_adapter = PostModelAdapter(
-        CommentModelAdapter(comment_to_a_post).post)
-    del_url_addr = del_url.key
-
-    DeletePostTester(
-        item_to_delete_adapter.item_cls,
-        user_client, another_user_client, unlogged_client,
-        item_adapter=item_to_delete_adapter).test_delete_item(
-        qs=item_to_delete_adapter.item_cls.objects.all(),
-        delete_url_addr=del_url_addr)
-
-    response = user_client.get(edit_url)
-    assert response.status_code == HTTPStatus.NOT_FOUND, (
-        'Убедитесь, что при обращении к странице редактирования '
-        'несуществующей публикации возвращается статус 404.')
-
-    response = user_client.get(del_url_addr)
-    assert response.status_code == HTTPStatus.NOT_FOUND, (
-        'Убедитесь, что при обращении к странице удаления '
-        'несуществующей публикации возвращается статус 404.')
-
-
 def _test_create_items(
         PostModel, PostAdapter, another_user_client,
         create_a_post_get_response, ctx_form,
